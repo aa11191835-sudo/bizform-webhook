@@ -98,14 +98,14 @@ function computeRemark(person, deceased, dayClashBranch) {
 
   if (deceased.branch !== undefined) {
     if (isSixClash(branch, deceased.branch)) {
-      remarks.push('沖煞不宜近棺');
+      remarks.push('封釘、出殯不宜參加');
     } else if (branch === deceased.branch) {
-      remarks.push('逢太歲蓋棺不宜直視');
+      remarks.push('蓋棺不宜直視');
     }
   }
 
   if (dayClashBranch !== null && branch === dayClashBranch) {
-    remarks.push('沖煞不宜送葬');
+    remarks.push('出殯當日不宜到場');
   }
 
   const pYear = parseInt(person.year, 10);
@@ -113,18 +113,18 @@ function computeRemark(person, deceased, dayClashBranch) {
   if (!isNaN(pYear) && !isNaN(dYear)) {
     const diff = Math.abs(dYear - pYear);
     if (diff > 0 && diff % 6 === 0) {
-      remarks.push('歲沖不宜近棺');
+      remarks.push('頭七不宜參加');
     }
   }
   if (!isNaN(pYear)) {
     const refYear = new Date().getFullYear();
     const age = refYear - pYear + 1;
     if (age > 0 && age % 9 === 0) {
-      remarks.push('逢九不宜抬棺');
+      remarks.push('不宜抬棺');
     }
   }
 
-  return remarks.join('；');
+  return remarks.length ? remarks.join('；') : '無禁忌';
 }
 
 // ========== BizForm API 呼叫 ==========
