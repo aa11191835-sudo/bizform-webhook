@@ -1,0 +1,15 @@
+{
+  "name": "bizform-chongsha-webhook",
+  "version": "1.0.0",
+  "description": "BizForm 沖煞日子媒合表單 - 自動計算沖煞備註並寫回",
+  "main": "bizform-chongsha-webhook.js",
+  "scripts": {
+    "start": "node bizform-chongsha-webhook.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
