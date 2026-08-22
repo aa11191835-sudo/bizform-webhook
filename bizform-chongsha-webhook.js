@@ -66,6 +66,7 @@ const ROLE_FIELDS = [
 const DECEASED_YEAR_FIELD = 'field_124';
 const DECEASED_ZODIAC_FIELD = 'field_125';
 const FUNERAL_DATE_FIELD = 'field_128'; // 出殯日期，格式 YYYY/MM/DD
+const TARGET_FORM_ID = 13; // 「沖煞日子媒合」表單的 form.id，安全檢查用
 
 // ========== 生肖判斷邏輯 ==========
 const ANIMAL_TO_BRANCH = { 鼠:0, 牛:1, 虎:2, 兔:3, 龍:4, 蛇:5, 馬:6, 羊:7, 猴:8, 雞:9, 狗:10, 豬:11 };
@@ -167,6 +168,13 @@ app.post('/bizform-webhook', async (req, res) => {
     if (!documentId) return res.status(400).json({ error: 'missing documentId' });
 
     const doc = await getDocument(documentId);
+
+    // 安全檢查：只處理「沖煞日子媒合」這張表單，其他表單（例如訃聞表單）一律跳過
+    if (!doc.form || doc.form.id !== TARGET_FORM_ID) {
+      console.log(`跳過：documentId=${documentId} 不是沖煞日子媒合表單（form.id=${doc.form && doc.form.id}）`);
+      return res.status(200).json({ ok: true, skipped: true, reason: 'not target form' });
+    }
+
     const attrs = doc.attributes || [];
 
     const deceased = {
