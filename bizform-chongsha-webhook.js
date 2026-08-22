@@ -97,31 +97,29 @@ function computeRemark(person, deceased, dayClashBranch) {
 
   if (deceased.branch !== undefined) {
     if (isSixClash(branch, deceased.branch)) {
-      remarks.push(`與亡者生肖相沖（${person.zodiac}沖${deceased.zodiac}），封釘/入殮/蓋棺時建議迴避`);
+      remarks.push('沖煞不宜近棺');
     } else if (branch === deceased.branch) {
-      remarks.push('與亡者同生肖，逢本命太歲，儀式中建議謹慎、可配戴平安物');
+      remarks.push('逢太歲蓋棺不宜直視');
     }
   }
 
   if (dayClashBranch !== null && branch === dayClashBranch) {
-    remarks.push(`與出殯日課沖煞（沖${ANIMALS[dayClashBranch]}），出殯當日建議暫離現場或不觸棺`);
+    remarks.push('沖煞不宜送葬');
   }
 
   const pYear = parseInt(person.year, 10);
   const dYear = parseInt(deceased.year, 10);
   if (!isNaN(pYear) && !isNaN(dYear)) {
     const diff = Math.abs(dYear - pYear);
-    if (diff > 0 && diff % 12 === 0 && diff / 12 > 1) {
-      remarks.push(`與亡者年齡相差${diff}歲（整12年），逢太歲年`);
-    } else if (diff > 0 && diff % 6 === 0 && diff % 12 !== 0) {
-      remarks.push(`與亡者年齡相差${diff}歲，民俗有「六沖」年齡之說，可酌情迴避近棺儀式`);
+    if (diff > 0 && diff % 6 === 0) {
+      remarks.push('歲沖不宜近棺');
     }
   }
   if (!isNaN(pYear)) {
     const refYear = new Date().getFullYear();
     const age = refYear - pYear + 1;
     if (age > 0 && age % 9 === 0) {
-      remarks.push(`本人虛歲${age}歲，逢「九」，習俗提醒避免抬棺、久站等粗重儀式`);
+      remarks.push('逢九不宜抬棺');
     }
   }
 
