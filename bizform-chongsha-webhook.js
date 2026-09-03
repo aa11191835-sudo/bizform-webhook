@@ -191,8 +191,10 @@ app.post('/bizform-webhook', async (req, res) => {
       };
       const taboos = computeTaboos(person, deceased, dayClashBranch);
       if (taboos.length) {
-        // 有填姓名就用姓名，沒填就退回用角色標籤（例如「孝男1」）
-        const displayName = person.name && person.name.trim() ? person.name.trim() : role.label;
+        // 有填姓名就用姓名（加「」括號跟後面文字區隔），沒填就退回用角色標籤（例如「孝男1」）
+        const displayName = person.name && person.name.trim()
+          ? `「${person.name.trim()}」`
+          : role.label;
         summary.push(`${displayName}${taboos.join('、')}`);
       }
     });
