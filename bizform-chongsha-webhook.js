@@ -1,14 +1,9 @@
 /**
  * BizForm「沖煞日子媒合」表單 — 提交後自動計算沖煞禁忌，統一寫進最後的「備註」欄位
+ * 備註格式改為使用「家屬姓名」（若該角色姓名有填），沒填姓名則退回用角色標籤
  *
- * 輸出格式範例：長孫封釘、出殯不宜參加、孝媳頭七不宜參加
+ * 輸出格式範例：王小明蓋棺不宜直視、頭七不宜參加、林小華不宜抬棺
  * 若所有人都沒有禁忌，寫入「無禁忌」
- *
- * 使用方式：
- *   1. 環境變數 BIZFORM_API_KEY 放您的 x-api-key
- *   2. 部署到 Render 這類能跑常駐 Node.js 伺服器的平台
- *   3. BizForm > Webhooks 設定 trigger=DocumentCreated，url 指向 /bizform-webhook，
- *      適用樣板只選「沖煞日子媒合」
  */
 
 const express = require('express');
@@ -19,53 +14,54 @@ app.use(express.json());
 const BIZFORM_BASE = 'https://bizform.vitalyun.com/backend/api';
 const API_KEY = process.env.BIZFORM_API_KEY;
 
-// ========== 角色 → 年次/生肖欄位 id 對照表 ==========
+// ========== 角色 → 姓名/年次/生肖欄位 id 對照表（2026/9/3 表單改版後最新版） ==========
 const ROLE_FIELDS = [
-  { label: '杖期夫',   year: 'field_1',  zodiac: 'field_2' },
-  { label: '護喪妻',   year: 'field_3',  zodiac: 'field_4' },
-  { label: '孝男1',    year: 'field_5',  zodiac: 'field_6' },
-  { label: '孝男2',    year: 'field_7',  zodiac: 'field_8' },
-  { label: '孝男3',    year: 'field_9',  zodiac: 'field_10' },
-  { label: '孝男4',    year: 'field_11', zodiac: 'field_12' },
-  { label: '孝男5',    year: 'field_13', zodiac: 'field_14' },
-  { label: '孝男6',    year: 'field_15', zodiac: 'field_16' },
-  { label: '孝男7',    year: 'field_17', zodiac: 'field_18' },
-  { label: '孝男8',    year: 'field_19', zodiac: 'field_20' },
-  { label: '孝媳1',    year: 'field_21', zodiac: 'field_22' },
-  { label: '孝媳2',    year: 'field_23', zodiac: 'field_24' },
-  { label: '孝媳3',    year: 'field_25', zodiac: 'field_26' },
-  { label: '孝媳4',    year: 'field_27', zodiac: 'field_28' },
-  { label: '孝媳5',    year: 'field_29', zodiac: 'field_30' },
-  { label: '孝媳6',    year: 'field_31', zodiac: 'field_32' },
-  { label: '孝媳7',    year: 'field_33', zodiac: 'field_34' },
-  { label: '孝媳8',    year: 'field_35', zodiac: 'field_36' },
-  { label: '孝女1',    year: 'field_37', zodiac: 'field_38' },
-  { label: '孝女2',    year: 'field_41', zodiac: 'field_42' },
-  { label: '孝女3',    year: 'field_43', zodiac: 'field_44' },
-  { label: '孝女4',    year: 'field_45', zodiac: 'field_46' },
-  { label: '孝女5',    year: 'field_47', zodiac: 'field_48' },
-  { label: '孝女6',    year: 'field_49', zodiac: 'field_50' },
-  { label: '孝女7',    year: 'field_51', zodiac: 'field_52' },
-  { label: '孝女8',    year: 'field_53', zodiac: 'field_54' },
-  { label: '孝長孫',   year: 'field_55', zodiac: 'field_56' },
-  { label: '孝長孫媳', year: 'field_57', zodiac: 'field_58' },
-  { label: '孝孫1',    year: 'field_59', zodiac: 'field_60' },
-  { label: '孝孫2',    year: 'field_61', zodiac: 'field_62' },
-  { label: '孝孫3',    year: 'field_63', zodiac: 'field_64' },
-  { label: '孝孫4',    year: 'field_65', zodiac: 'field_66' },
-  { label: '孝孫媳1',  year: 'field_67', zodiac: 'field_68' },
-  { label: '孝孫媳2',  year: 'field_69', zodiac: 'field_70' },
-  { label: '孝孫媳3',  year: 'field_71', zodiac: 'field_72' },
-  { label: '孝孫媳4',  year: 'field_73', zodiac: 'field_74' },
-  { label: '孝孫女1',  year: 'field_75', zodiac: 'field_76' },
-  { label: '孝孫女2',  year: 'field_77', zodiac: 'field_78' },
-  { label: '孝孫女3',  year: 'field_79', zodiac: 'field_80' },
-  { label: '孝孫女4',  year: 'field_81', zodiac: 'field_82' },
+  { label: '杖期夫',   name: 'field_1',  year: 'field_137', zodiac: 'field_2' },
+  { label: '護喪妻',   name: 'field_3',  year: 'field_138', zodiac: 'field_4' },
+  { label: '孝男1',    name: 'field_5',  year: 'field_139', zodiac: 'field_6' },
+  { label: '孝男2',    name: 'field_7',  year: 'field_140', zodiac: 'field_8' },
+  { label: '孝男3',    name: 'field_9',  year: 'field_141', zodiac: 'field_10' },
+  { label: '孝男4',    name: 'field_11', year: 'field_142', zodiac: 'field_12' },
+  { label: '孝男5',    name: 'field_13', year: 'field_143', zodiac: 'field_14' },
+  { label: '孝男6',    name: 'field_15', year: 'field_144', zodiac: 'field_16' },
+  { label: '孝男7',    name: 'field_17', year: 'field_145', zodiac: 'field_18' },
+  { label: '孝男8',    name: 'field_19', year: 'field_146', zodiac: 'field_20' },
+  { label: '孝媳1',    name: 'field_21', year: 'field_147', zodiac: 'field_22' },
+  { label: '孝媳2',    name: 'field_23', year: 'field_148', zodiac: 'field_24' },
+  { label: '孝媳3',    name: 'field_25', year: 'field_149', zodiac: 'field_26' },
+  { label: '孝媳4',    name: 'field_27', year: 'field_150', zodiac: 'field_28' },
+  { label: '孝媳5',    name: 'field_29', year: 'field_151', zodiac: 'field_30' },
+  { label: '孝媳6',    name: 'field_31', year: 'field_152', zodiac: 'field_32' },
+  { label: '孝媳7',    name: 'field_33', year: 'field_153', zodiac: 'field_34' },
+  { label: '孝媳8',    name: 'field_35', year: 'field_154', zodiac: 'field_36' },
+  { label: '孝女1',    name: 'field_37', year: 'field_155', zodiac: 'field_38' },
+  { label: '孝女2',    name: 'field_41', year: 'field_156', zodiac: 'field_42' },
+  { label: '孝女3',    name: 'field_43', year: 'field_157', zodiac: 'field_44' },
+  { label: '孝女4',    name: 'field_45', year: 'field_158', zodiac: 'field_46' },
+  { label: '孝女5',    name: 'field_47', year: 'field_159', zodiac: 'field_48' },
+  { label: '孝女6',    name: 'field_49', year: 'field_160', zodiac: 'field_50' },
+  { label: '孝女7',    name: 'field_51', year: 'field_161', zodiac: 'field_52' },
+  { label: '孝女8',    name: 'field_53', year: 'field_162', zodiac: 'field_54' },
+  { label: '孝長孫',   name: 'field_55', year: 'field_163', zodiac: 'field_56' },
+  { label: '孝長孫媳', name: 'field_57', year: 'field_164', zodiac: 'field_58' },
+  { label: '孝孫1',    name: 'field_59', year: 'field_165', zodiac: 'field_60' },
+  { label: '孝孫2',    name: 'field_61', year: 'field_166', zodiac: 'field_62' },
+  { label: '孝孫3',    name: 'field_63', year: 'field_167', zodiac: 'field_64' },
+  { label: '孝孫4',    name: 'field_65', year: 'field_168', zodiac: 'field_66' },
+  { label: '孝孫媳1',  name: 'field_67', year: 'field_169', zodiac: 'field_68' },
+  { label: '孝孫媳2',  name: 'field_69', year: 'field_170', zodiac: 'field_70' },
+  { label: '孝孫媳3',  name: 'field_71', year: 'field_171', zodiac: 'field_72' },
+  { label: '孝孫媳4',  name: 'field_73', year: 'field_172', zodiac: 'field_74' },
+  { label: '孝孫女1',  name: 'field_75', year: 'field_173', zodiac: 'field_76' },
+  { label: '孝孫女2',  name: 'field_77', year: 'field_174', zodiac: 'field_78' },
+  { label: '孝孫女3',  name: 'field_79', year: 'field_175', zodiac: 'field_80' },
+  { label: '孝孫女4',  name: 'field_81', year: 'field_176', zodiac: 'field_82' },
 ];
-const DECEASED_YEAR_FIELD = 'field_124';
-const DECEASED_ZODIAC_FIELD = 'field_125';
-const FUNERAL_DATE_FIELD = 'field_128';
-const FINAL_REMARK_FIELD = 'field_131'; // 最後統一的「備註」欄位
+const DECEASED_NAME_FIELD = 'field_124';   // 亡者姓名
+const DECEASED_YEAR_FIELD = 'field_125';   // 亡者年次
+const DECEASED_ZODIAC_FIELD = 'field_177'; // 亡者生肖
+const FUNERAL_DATE_FIELD = 'field_178';    // 出殯日期
+const FINAL_REMARK_FIELD = 'field_131';    // 最後統一的「備註」欄位
 const TARGET_FORM_ID = 13; // 「沖煞日子媒合」表單 form.id，安全檢查用
 
 // ========== 生肖判斷邏輯 ==========
@@ -76,7 +72,6 @@ function isSixClash(a, b) {
   return (a + 6) % 12 === b || (b + 6) % 12 === a;
 }
 
-// 出殯日期字串（YYYY/MM/DD 或 YYYY-MM-DD）→ 當日「沖」到的生肖 branch index
 function dayClashBranchFromDate(dateStr) {
   if (!dateStr) return null;
   const normalized = dateStr.trim().replace(/\//g, '-');
@@ -178,6 +173,7 @@ app.post('/bizform-webhook', async (req, res) => {
     const attrs = doc.attributes || [];
 
     const deceased = {
+      name: getVal(attrs, DECEASED_NAME_FIELD),
       year: getVal(attrs, DECEASED_YEAR_FIELD),
       zodiac: getVal(attrs, DECEASED_ZODIAC_FIELD),
     };
@@ -189,12 +185,15 @@ app.post('/bizform-webhook', async (req, res) => {
     const summary = [];
     ROLE_FIELDS.forEach(role => {
       const person = {
+        name: getVal(attrs, role.name),
         year: getVal(attrs, role.year),
         zodiac: getVal(attrs, role.zodiac),
       };
       const taboos = computeTaboos(person, deceased, dayClashBranch);
       if (taboos.length) {
-        summary.push(`${role.label}${taboos.join('、')}`);
+        // 有填姓名就用姓名，沒填就退回用角色標籤（例如「孝男1」）
+        const displayName = person.name && person.name.trim() ? person.name.trim() : role.label;
+        summary.push(`${displayName}${taboos.join('、')}`);
       }
     });
 
