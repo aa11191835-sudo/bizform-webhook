@@ -1,8 +1,8 @@
 /**
  * BizForm「沖煞日子媒合」表單 — 提交後自動計算沖煞禁忌，統一寫進最後的「備註」欄位
- * 備註格式改為使用「家屬姓名」（若該角色姓名有填），沒填姓名則退回用角色標籤
+ * （2026/9/9 表單改版：家屬資料改成「可重複新增列」的子表格結構，存放在 subDocuments 裡）
  *
- * 輸出格式範例：王小明蓋棺不宜直視、頭七不宜參加、林小華不宜抬棺
+ * 備註格式：有填姓名用「姓名」（加「」括號），沒填姓名則用「角色標籤+序號」（例如孝男2）
  * 若所有人都沒有禁忌，寫入「無禁忌」
  */
 
@@ -14,64 +14,34 @@ app.use(express.json());
 const BIZFORM_BASE = 'https://bizform.vitalyun.com/backend/api';
 const API_KEY = process.env.BIZFORM_API_KEY;
 
-// CRM 同步用（此 API 不支援 x-api-key，需要用個人 JWT + depotId）
-const CRM_JWT = process.env.BIZFORM_JWT; // 例如 "Bearer eyJhbGci..."
+const CRM_JWT = process.env.BIZFORM_JWT;
 const DEPOT_ID = process.env.BIZFORM_DEPOT_ID || 'bc6bc14f5b30499ab40f760c63fa4eb2';
 const CRM_TENANT_ID = process.env.BIZFORM_CRM_TENANT_ID || 'faca5f8b5a0b696fa2d5d1cdb1a31185';
 
-// 「客戶姓名」「客戶電話」欄位的 id（本表單裡對應到 CRM 的客戶欄位）
 const CUSTOMER_NAME_FIELD_ID = 'field_133';
 const CUSTOMER_PHONE_FIELD_ID = 'field_134';
 
-// ========== 角色 → 姓名/年次/生肖欄位 id 對照表（2026/9/3 表單改版後最新版） ==========
-const ROLE_FIELDS = [
-  { label: '杖期夫',   name: 'field_1',  year: 'field_137', zodiac: 'field_2' },
-  { label: '護喪妻',   name: 'field_3',  year: 'field_138', zodiac: 'field_4' },
-  { label: '孝男1',    name: 'field_5',  year: 'field_139', zodiac: 'field_6' },
-  { label: '孝男2',    name: 'field_7',  year: 'field_140', zodiac: 'field_8' },
-  { label: '孝男3',    name: 'field_9',  year: 'field_141', zodiac: 'field_10' },
-  { label: '孝男4',    name: 'field_11', year: 'field_142', zodiac: 'field_12' },
-  { label: '孝男5',    name: 'field_13', year: 'field_143', zodiac: 'field_14' },
-  { label: '孝男6',    name: 'field_15', year: 'field_144', zodiac: 'field_16' },
-  { label: '孝男7',    name: 'field_17', year: 'field_145', zodiac: 'field_18' },
-  { label: '孝男8',    name: 'field_19', year: 'field_146', zodiac: 'field_20' },
-  { label: '孝媳1',    name: 'field_21', year: 'field_147', zodiac: 'field_22' },
-  { label: '孝媳2',    name: 'field_23', year: 'field_148', zodiac: 'field_24' },
-  { label: '孝媳3',    name: 'field_25', year: 'field_149', zodiac: 'field_26' },
-  { label: '孝媳4',    name: 'field_27', year: 'field_150', zodiac: 'field_28' },
-  { label: '孝媳5',    name: 'field_29', year: 'field_151', zodiac: 'field_30' },
-  { label: '孝媳6',    name: 'field_31', year: 'field_152', zodiac: 'field_32' },
-  { label: '孝媳7',    name: 'field_33', year: 'field_153', zodiac: 'field_34' },
-  { label: '孝媳8',    name: 'field_35', year: 'field_154', zodiac: 'field_36' },
-  { label: '孝女1',    name: 'field_37', year: 'field_155', zodiac: 'field_38' },
-  { label: '孝女2',    name: 'field_41', year: 'field_156', zodiac: 'field_42' },
-  { label: '孝女3',    name: 'field_43', year: 'field_157', zodiac: 'field_44' },
-  { label: '孝女4',    name: 'field_45', year: 'field_158', zodiac: 'field_46' },
-  { label: '孝女5',    name: 'field_47', year: 'field_159', zodiac: 'field_48' },
-  { label: '孝女6',    name: 'field_49', year: 'field_160', zodiac: 'field_50' },
-  { label: '孝女7',    name: 'field_51', year: 'field_161', zodiac: 'field_52' },
-  { label: '孝女8',    name: 'field_53', year: 'field_162', zodiac: 'field_54' },
-  { label: '孝長孫',   name: 'field_55', year: 'field_163', zodiac: 'field_56' },
-  { label: '孝長孫媳', name: 'field_57', year: 'field_164', zodiac: 'field_58' },
-  { label: '孝孫1',    name: 'field_59', year: 'field_165', zodiac: 'field_60' },
-  { label: '孝孫2',    name: 'field_61', year: 'field_166', zodiac: 'field_62' },
-  { label: '孝孫3',    name: 'field_63', year: 'field_167', zodiac: 'field_64' },
-  { label: '孝孫4',    name: 'field_65', year: 'field_168', zodiac: 'field_66' },
-  { label: '孝孫媳1',  name: 'field_67', year: 'field_169', zodiac: 'field_68' },
-  { label: '孝孫媳2',  name: 'field_69', year: 'field_170', zodiac: 'field_70' },
-  { label: '孝孫媳3',  name: 'field_71', year: 'field_171', zodiac: 'field_72' },
-  { label: '孝孫媳4',  name: 'field_73', year: 'field_172', zodiac: 'field_74' },
-  { label: '孝孫女1',  name: 'field_75', year: 'field_173', zodiac: 'field_76' },
-  { label: '孝孫女2',  name: 'field_77', year: 'field_174', zodiac: 'field_78' },
-  { label: '孝孫女3',  name: 'field_79', year: 'field_175', zodiac: 'field_80' },
-  { label: '孝孫女4',  name: 'field_81', year: 'field_176', zodiac: 'field_82' },
+const DECEASED_NAME_FIELD = 'field_124';
+const DECEASED_YEAR_FIELD = 'field_125';
+const DECEASED_ZODIAC_FIELD = 'field_177';
+const FUNERAL_DATE_FIELD = 'field_178';
+const FINAL_REMARK_FIELD = 'field_131';
+const TARGET_FORM_ID = 13;
+
+// 每個角色對應的「子表格群組id(title)」以及群組內姓名/年次/生肖各自的 field id
+// （2026/9/9 改版後的新結構：家屬資料在 doc.subDocuments 裡，每筆代表一位家屬）
+const GROUP_CONFIGS = [
+  { label: '杖期夫',   titleId: 'field_181', nameField: 'field_183', yearField: 'field_184', zodiacField: 'field_185' },
+  { label: '護喪妻',   titleId: 'field_186', nameField: 'field_188', yearField: 'field_189', zodiacField: 'field_190' },
+  { label: '孝男',     titleId: 'field_191', nameField: 'field_193', yearField: 'field_194', zodiacField: 'field_195' },
+  { label: '孝媳',     titleId: 'field_196', nameField: 'field_198', yearField: 'field_199', zodiacField: 'field_200' },
+  { label: '孝女',     titleId: 'field_201', nameField: 'field_203', yearField: 'field_204', zodiacField: 'field_205' },
+  { label: '孝長孫',   titleId: 'field_206', nameField: 'field_208', yearField: 'field_209', zodiacField: 'field_210' },
+  { label: '孝長孫媳', titleId: 'field_216', nameField: 'field_218', yearField: 'field_219', zodiacField: 'field_220' },
+  { label: '孝孫',     titleId: 'field_226', nameField: 'field_228', yearField: 'field_229', zodiacField: 'field_230' },
+  { label: '孝孫媳',   titleId: 'field_221', nameField: 'field_223', yearField: 'field_224', zodiacField: 'field_225' },
+  { label: '孝孫女',   titleId: 'field_211', nameField: 'field_213', yearField: 'field_214', zodiacField: 'field_215' },
 ];
-const DECEASED_NAME_FIELD = 'field_124';   // 亡者姓名
-const DECEASED_YEAR_FIELD = 'field_125';   // 亡者年次
-const DECEASED_ZODIAC_FIELD = 'field_177'; // 亡者生肖
-const FUNERAL_DATE_FIELD = 'field_178';    // 出殯日期
-const FINAL_REMARK_FIELD = 'field_131';    // 最後統一的「備註」欄位
-const TARGET_FORM_ID = 13; // 「沖煞日子媒合」表單 form.id，安全檢查用
 
 // ========== 生肖判斷邏輯 ==========
 const ANIMAL_TO_BRANCH = { 鼠:0, 牛:1, 虎:2, 兔:3, 龍:4, 蛇:5, 馬:6, 羊:7, 猴:8, 雞:9, 狗:10, 豬:11 };
@@ -92,9 +62,6 @@ function dayClashBranchFromDate(dateStr) {
   return (dayBranch + 6) % 12;
 }
 
-/**
- * 計算單一人的禁忌短語陣列（沒有禁忌則回傳空陣列）
- */
 function computeTaboos(person, deceased, dayClashBranch) {
   const branch = ANIMAL_TO_BRANCH[person.zodiac];
   if (branch === undefined) return [];
@@ -161,11 +128,10 @@ function bearerHeader() {
   return CRM_JWT.startsWith('Bearer') ? CRM_JWT : `Bearer ${CRM_JWT}`;
 }
 
-// 用姓名去 CRM 搜尋，再比對電話是否完全相符，找到就回傳既有客戶的 customerId
 async function findExistingCrmCustomerId(name, phone) {
   if (!CRM_JWT || !name) return null;
   const normalizedPhone = String(phone || '').replace(/[\s-]/g, '');
-  const url = `${BIZFORM_BASE}/ExResources/0/customers?name=${encodeURIComponent(name)}&pageSize=50`;
+  const url = `${BIZFORM_BASE}/ExResources/CRM/customers?storedId=1&name=${encodeURIComponent(name)}&pageSize=50`;
   const res = await fetch(url, {
     headers: { Authorization: bearerHeader(), depotId: DEPOT_ID, accept: 'application/json' },
   });
@@ -175,7 +141,6 @@ async function findExistingCrmCustomerId(name, phone) {
   }
   const customers = await res.json();
   if (!Array.isArray(customers)) return null;
-
   for (const cust of customers) {
     const mechs = cust.contactMechs || [];
     const matched = mechs.some(m => String(m.value || '').replace(/[\s-]/g, '') === normalizedPhone);
@@ -184,7 +149,6 @@ async function findExistingCrmCustomerId(name, phone) {
   return null;
 }
 
-// 把找到的既有客戶 ID 補進「客戶姓名」欄位的 fieldInfo.value，讓 crmItems 判定為更新而非新增
 function linkExistingCustomer(attrs, existingCustomerId) {
   const attr = attrs.find(a => a.id === CUSTOMER_NAME_FIELD_ID);
   if (!attr || !attr.fieldInfo) return false;
@@ -192,7 +156,6 @@ function linkExistingCustomer(attrs, existingCustomerId) {
   return true;
 }
 
-// 把表單內的客戶資料同步進 CRM（此 API 不支援 x-api-key，需用個人 JWT）
 async function syncToCrm(documentId) {
   if (!CRM_JWT) {
     console.log('尚未設定 BIZFORM_JWT，略過 CRM 同步');
@@ -201,11 +164,7 @@ async function syncToCrm(documentId) {
   const url = `${BIZFORM_BASE}/Documents/${documentId}/crmItems?version=0`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      Authorization: bearerHeader(),
-      depotId: DEPOT_ID,
-      accept: 'application/json',
-    },
+    headers: { Authorization: bearerHeader(), depotId: DEPOT_ID, accept: 'application/json' },
   });
   const text = await res.text();
   if (!res.ok) {
@@ -223,6 +182,40 @@ function getVal(attrs, id) {
 function setVal(attrs, id, value) {
   const a = attrs.find(x => x.id === id);
   if (a) a.value = [value];
+}
+
+// ========== 從新版 subDocuments 結構讀出所有家屬 ==========
+function extractFamilyMembers(doc) {
+  const subDocs = doc.subDocuments || [];
+  const members = [];
+  // 用來給沒填姓名的人做角色序號（同角色第幾筆）
+  const roleCounters = {};
+
+  subDocs.forEach(sub => {
+    const config = GROUP_CONFIGS.find(g => g.titleId === sub.title);
+    if (!config) return; // 不認得的群組，跳過
+
+    const subAttrs = sub.attributes || [];
+    const name = getVal(subAttrs, config.nameField);
+    const year = getVal(subAttrs, config.yearField);
+    const zodiac = getVal(subAttrs, config.zodiacField);
+
+    // 完全空白的列（使用者沒填任何資料）就跳過，不計入序號
+    if (!name && !year && !zodiac) return;
+
+    roleCounters[config.label] = (roleCounters[config.label] || 0) + 1;
+    const seq = roleCounters[config.label];
+
+    members.push({
+      label: config.label,
+      seq,
+      name,
+      year,
+      zodiac,
+    });
+  });
+
+  return members;
 }
 
 // ========== Webhook 接收端點 ==========
@@ -250,19 +243,20 @@ app.post('/bizform-webhook', async (req, res) => {
     const funeralDate = getVal(attrs, FUNERAL_DATE_FIELD);
     const dayClashBranch = dayClashBranchFromDate(funeralDate);
 
+    const familyMembers = extractFamilyMembers(doc);
+
     const summary = [];
-    ROLE_FIELDS.forEach(role => {
-      const person = {
-        name: getVal(attrs, role.name),
-        year: getVal(attrs, role.year),
-        zodiac: getVal(attrs, role.zodiac),
-      };
+    // 同角色若有多筆，角色標籤要加序號（例如孝男1、孝男2），只有單一筆時角色標籤不加序號也清楚，但為了一致性一律加序號
+    const roleTotalCount = {};
+    familyMembers.forEach(m => { roleTotalCount[m.label] = (roleTotalCount[m.label] || 0) + 1; });
+
+    familyMembers.forEach(person => {
       const taboos = computeTaboos(person, deceased, dayClashBranch);
       if (taboos.length) {
-        // 有填姓名就用姓名（加「」括號跟後面文字區隔），沒填就退回用角色標籤（例如「孝男1」）
+        const roleLabel = roleTotalCount[person.label] > 1 ? `${person.label}${person.seq}` : person.label;
         const displayName = person.name && person.name.trim()
           ? `「${person.name.trim()}」`
-          : role.label;
+          : roleLabel;
         summary.push(`${displayName}${taboos.join('、')}`);
       }
     });
@@ -270,34 +264,27 @@ app.post('/bizform-webhook', async (req, res) => {
     const finalText = summary.length ? summary.join('、') : '無禁忌';
     setVal(attrs, FINAL_REMARK_FIELD, finalText);
 
-    // 送CRM之前，先用姓名+電話查詢CRM有沒有既有客戶，有的話補上真正的客戶ID，
-    // 這樣等一下 syncToCrm 才會判定成「更新既有客戶」，不會又新增一筆重複的客戶
-    // 【暫時停用】CRM客戶搜尋比對API目前有問題(回傳空陣列，等叡揚確認)，
-    // 先跳過既有客戶比對，直接讓 syncToCrm 依原本邏輯新增/更新。
-    // 待確認可用後，把下面這段的 if(false) 改回 if(true) 或直接拿掉即可重新啟用。
+    // 送CRM之前，先用姓名+電話查詢CRM有沒有既有客戶，有的話補上真正的客戶ID
     const custName = getVal(attrs, CUSTOMER_NAME_FIELD_ID);
     const custPhone = getVal(attrs, CUSTOMER_PHONE_FIELD_ID);
-    if (false) {
-      const existingCustomerId = await findExistingCrmCustomerId(custName, custPhone).catch(err => {
-        console.error('CRM 客戶搜尋發生例外:', err.message);
-        return null;
-      });
-      if (existingCustomerId) {
-        linkExistingCustomer(attrs, existingCustomerId);
-        console.log(`比對到既有CRM客戶(${custName})，將更新而非新增：${existingCustomerId}`);
-      }
+    const existingCustomerId = await findExistingCrmCustomerId(custName, custPhone).catch(err => {
+      console.error('CRM 客戶搜尋發生例外:', err.message);
+      return null;
+    });
+    if (existingCustomerId) {
+      linkExistingCustomer(attrs, existingCustomerId);
+      console.log(`比對到既有CRM客戶(${custName})，將更新而非新增：${existingCustomerId}`);
     }
 
     doc.attributes = attrs;
     await updateDocument(documentId, doc);
 
-    // 額外同步一次 CRM（失敗不影響備註已經寫入成功的結果，只記錄log）
     const crmResult = await syncToCrm(documentId).catch(err => {
       console.error('CRM 同步發生例外:', err.message);
       return null;
     });
 
-    res.status(200).json({ ok: true, remark: finalText, crm: crmResult });
+    res.status(200).json({ ok: true, remark: finalText, familyCount: familyMembers.length, crm: crmResult });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
