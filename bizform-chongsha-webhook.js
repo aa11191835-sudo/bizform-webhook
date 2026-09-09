@@ -14,6 +14,15 @@ app.use(express.json());
 const BIZFORM_BASE = 'https://bizform.vitalyun.com/backend/api';
 const API_KEY = process.env.BIZFORM_API_KEY;
 
+// CRM 同步用（此 API 不支援 x-api-key，需要用個人 JWT + depotId）
+const CRM_JWT = process.env.BIZFORM_JWT; // 例如 "Bearer eyJhbGci..."
+const DEPOT_ID = process.env.BIZFORM_DEPOT_ID || 'bc6bc14f5b30499ab40f760c63fa4eb2';
+const CRM_TENANT_ID = process.env.BIZFORM_CRM_TENANT_ID || 'faca5f8b5a0b696fa2d5d1cdb1a31185';
+
+// 「客戶姓名」「客戶電話」欄位的 id（本表單裡對應到 CRM 的客戶欄位）
+const CUSTOMER_NAME_FIELD_ID = 'field_133';
+const CUSTOMER_PHONE_FIELD_ID = 'field_134';
+
 // ========== 角色 → 姓名/年次/生肖欄位 id 對照表（2026/9/3 表單改版後最新版） ==========
 const ROLE_FIELDS = [
   { label: '杖期夫',   name: 'field_1',  year: 'field_137', zodiac: 'field_2' },
@@ -148,6 +157,65 @@ async function updateDocument(id, doc) {
   }
 }
 
+function bearerHeader() {
+  return CRM_JWT.startsWith('Bearer') ? CRM_JWT : `Bearer ${CRM_JWT}`;
+}
+
+// 用姓名去 CRM 搜尋，再比對電話是否完全相符，找到就回傳既有客戶的 customerId
+async function findExistingCrmCustomerId(name, phone) {
+  if (!CRM_JWT || !name) return null;
+  const normalizedPhone = String(phone || '').replace(/[\s-]/g, '');
+  const url = `${BIZFORM_BASE}/ExResources/0/customers?name=${encodeURIComponent(name)}&pageSize=50`;
+  const res = await fetch(url, {
+    headers: { Authorization: bearerHeader(), depotId: DEPOT_ID, accept: 'application/json' },
+  });
+  if (!res.ok) {
+    console.error('CRM 客戶搜尋失敗:', res.status, await res.text());
+    return null;
+  }
+  const customers = await res.json();
+  if (!Array.isArray(customers)) return null;
+
+  for (const cust of customers) {
+    const mechs = cust.contactMechs || [];
+    const matched = mechs.some(m => String(m.value || '').replace(/[\s-]/g, '') === normalizedPhone);
+    if (matched) return cust.customerId || cust.id;
+  }
+  return null;
+}
+
+// 把找到的既有客戶 ID 補進「客戶姓名」欄位的 fieldInfo.value，讓 crmItems 判定為更新而非新增
+function linkExistingCustomer(attrs, existingCustomerId) {
+  const attr = attrs.find(a => a.id === CUSTOMER_NAME_FIELD_ID);
+  if (!attr || !attr.fieldInfo) return false;
+  attr.fieldInfo.value = ['related', 'crm', 'main', CRM_TENANT_ID, 'customers', existingCustomerId];
+  return true;
+}
+
+// 把表單內的客戶資料同步進 CRM（此 API 不支援 x-api-key，需用個人 JWT）
+async function syncToCrm(documentId) {
+  if (!CRM_JWT) {
+    console.log('尚未設定 BIZFORM_JWT，略過 CRM 同步');
+    return null;
+  }
+  const url = `${BIZFORM_BASE}/Documents/${documentId}/crmItems?version=0`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: bearerHeader(),
+      depotId: DEPOT_ID,
+      accept: 'application/json',
+    },
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    console.error('CRM 同步失敗:', res.status, text);
+    return null;
+  }
+  console.log('CRM 同步結果:', text);
+  return JSON.parse(text);
+}
+
 function getVal(attrs, id) {
   const a = attrs.find(x => x.id === id);
   return a && a.value && a.value[0] !== undefined ? a.value[0] : '';
@@ -202,10 +270,34 @@ app.post('/bizform-webhook', async (req, res) => {
     const finalText = summary.length ? summary.join('、') : '無禁忌';
     setVal(attrs, FINAL_REMARK_FIELD, finalText);
 
+    // 送CRM之前，先用姓名+電話查詢CRM有沒有既有客戶，有的話補上真正的客戶ID，
+    // 這樣等一下 syncToCrm 才會判定成「更新既有客戶」，不會又新增一筆重複的客戶
+    // 【暫時停用】CRM客戶搜尋比對API目前有問題(回傳空陣列，等叡揚確認)，
+    // 先跳過既有客戶比對，直接讓 syncToCrm 依原本邏輯新增/更新。
+    // 待確認可用後，把下面這段的 if(false) 改回 if(true) 或直接拿掉即可重新啟用。
+    const custName = getVal(attrs, CUSTOMER_NAME_FIELD_ID);
+    const custPhone = getVal(attrs, CUSTOMER_PHONE_FIELD_ID);
+    if (false) {
+      const existingCustomerId = await findExistingCrmCustomerId(custName, custPhone).catch(err => {
+        console.error('CRM 客戶搜尋發生例外:', err.message);
+        return null;
+      });
+      if (existingCustomerId) {
+        linkExistingCustomer(attrs, existingCustomerId);
+        console.log(`比對到既有CRM客戶(${custName})，將更新而非新增：${existingCustomerId}`);
+      }
+    }
+
     doc.attributes = attrs;
     await updateDocument(documentId, doc);
 
-    res.status(200).json({ ok: true, remark: finalText });
+    // 額外同步一次 CRM（失敗不影響備註已經寫入成功的結果，只記錄log）
+    const crmResult = await syncToCrm(documentId).catch(err => {
+      console.error('CRM 同步發生例外:', err.message);
+      return null;
+    });
+
+    res.status(200).json({ ok: true, remark: finalText, crm: crmResult });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
